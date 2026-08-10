@@ -1,0 +1,12 @@
+{
+  "mcp": {
+    "servers": {
+      "dj-music-metadata": {
+        "command": "c:/Users/joaop/OneDrive/Área de Trabalho/dj-music-metadata-mcp/.venv/Scripts/python.exe",
+        "args": [
+          "server.py"
+        ]
+      }
+    }
+  }
+}
