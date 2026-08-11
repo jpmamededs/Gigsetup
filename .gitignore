@@ -16,6 +16,7 @@ ui/dist/
 build/
 dist/
 *.spec
+!DJMetadataLauncher-macos.spec
 *.exe
 *.msi
 *.zip
@@ -26,6 +27,8 @@ build_exe.bat
 # Generated icon assets
 assets/dj_launcher.ico
 assets/dj_launcher.png
+assets/dj_launcher.icns
+assets/dj_launcher.iconset/
 
 # Environment and local config
 .env

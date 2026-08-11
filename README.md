@@ -33,8 +33,13 @@ If these variables are not configured, the server still works with MusicBrainz a
 ## Install
 
 ```bash
-pip install -r requirements.txt
+python3.14 -m venv .venv
+.venv/bin/pip install -r requirements.txt
 ```
+
+On macOS the Homebrew interpreter is PEP 668 externally-managed, so a bare
+`pip install -r requirements.txt` fails with `externally-managed-environment`.
+Use the venv.
 
 ## Run
 
@@ -82,6 +87,27 @@ Resultado esperado:
 ```text
 dist/DJMetadataLauncher.exe
 ```
+
+## Gerar app (macOS)
+
+Requer o venv acima e `node`. O script compila o frontend, gera o icone e empacota:
+
+```bash
+./build_app.sh
+```
+
+Resultado esperado:
+
+```text
+dist/DJMetadataLauncher.app
+```
+
+Observacoes:
+
+- Alvo `arm64` apenas (Apple Silicon). Nao gera universal2.
+- Assinatura ad-hoc, sem notarizacao. Quem receber o `.app` por download precisa
+  abrir a primeira vez com clique-direito > Abrir.
+- O script usa `./.venv/bin/python` se existir; sobrescreva com `PYTHON_BIN=...`.
 
 Example (Windows PowerShell):
 
