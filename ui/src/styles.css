@@ -3,82 +3,63 @@
 @tailwind utilities;
 
 :root {
-  --ink: #e4e4e7;
+  --ink: #f2fbff;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
 }
 
 body {
   margin: 0;
-  font-family: 'Gotham', 'Montserrat', 'Avenir Next', 'Segoe UI', Arial, sans-serif;
+  font-family: 'Sora', 'Space Grotesk', 'Montserrat', 'Segoe UI', Arial, sans-serif;
   color: var(--ink);
   background: #000000;
+  overflow: hidden;
 }
 
-.simple-panel {
-  background: transparent;
-  padding: 1.4rem;
-  box-shadow: none;
+.app-root {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.flat-layout {
+  width: min(980px, 100%);
 }
 
 .brand-logo {
-  width: min(170px, 46vw);
+  width: min(172px, 42vw);
   height: auto;
   display: block;
 }
 
-.site-title {
-  margin: 0;
-  font-family: 'Manrope', 'Segoe UI', Arial, sans-serif;
-  font-size: 1.1rem;
-  font-weight: 600;
-  color: #f4f4f5;
-}
-
-.subtitle {
-  font-family: 'Manrope', 'Segoe UI', Arial, sans-serif;
-}
-
-.btn-site {
-  border: none;
-  cursor: pointer;
-  border-radius: 0.75rem;
-  padding: 0.68rem 1.15rem;
-  font-weight: 600;
-  color: #f4f4f5;
-  text-decoration: none;
-  background: #171717;
-  transition: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-}
-
-.btn-site-primary {
-  background: #151515;
-  color: #ffffff;
-}
-
-.btn-site-danger {
-  background: #151515;
-  color: #f5a3a3;
+.mono-line {
+  margin-top: 0.4rem;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+  color: #bff4ff;
+  font-size: 0.9rem;
+  word-break: break-word;
 }
 
 .client-btn {
-  display: flex;
-  align-items: center;
-  gap: 0.55rem;
-  border: none;
-  border-radius: 0.75rem;
-  background: #121212;
-  color: #f4f4f5;
-  font-weight: 600;
-  padding: 0.62rem 0.8rem;
+  justify-content: center;
+  height: 42px;
+}
+
+.rt-BaseButton,
+button,
+.rt-RadioCardsItem,
+[role='button'] {
   cursor: pointer;
 }
 
-.status-site {
-  border-radius: 999px;
-  padding: 0.35rem 0.8rem;
-  font-size: 0.8rem;
-  font-weight: 600;
-  font-family: 'Manrope', 'Segoe UI', Arial, sans-serif;
+@media (max-width: 768px) {
+  .flat-layout {
+    width: 100%;
+  }
 }

@@ -1,12 +1,20 @@
 import { useEffect, useState } from 'react'
 import toast, { Toaster } from 'react-hot-toast'
-import { CirclePlay, CircleStop } from 'lucide-react'
+import { CirclePlay, CircleStop, Cable, Network } from 'lucide-react'
 import { VscVscode } from 'react-icons/vsc'
 import { SiClaude, SiCursor } from 'react-icons/si'
+import { Badge, Box, Button, Container, Flex, Grid, Heading, RadioCards, Separator, Text, TextField, Theme } from '@radix-ui/themes'
 
 export default function App() {
   const [ready, setReady] = useState(false)
   const [running, setRunning] = useState(false)
+  const [config, setConfig] = useState({
+    serverName: 'dj-music-metadata',
+    serverMode: 'stdio',
+    host: '127.0.0.1',
+    port: '8000',
+    apiKey: ''
+  })
 
   useEffect(() => {
     const onReady = async () => {
@@ -45,6 +53,9 @@ export default function App() {
       const state = await callApi('get_state')
       if (state?.ok) {
         setRunning(Boolean(state.running))
+        if (state.config) {
+          setConfig((prev) => ({ ...prev, ...state.config }))
+        }
       }
     } catch {
       // Ignore while bootstrap not completed.
@@ -59,19 +70,35 @@ export default function App() {
     toast.error(message)
   }
 
+  async function saveConfig() {
+    const payload = await callApi('update_config', config)
+    if (!payload?.ok) {
+      showToast(payload?.message || 'Invalid configuration.', false)
+      return false
+    }
+    return true
+  }
+
   async function onStart() {
-    await callApi('update_config', {
-      serverMode: 'streamable-http',
-      host: '127.0.0.1',
-      port: '8000',
-      apiKey: ''
-    })
+    const ok = await saveConfig()
+    if (!ok) return
+
+    if (config.serverMode === 'stdio') {
+      showToast('In stdio mode, no manual start is required. Connect directly in your client.')
+      return
+    }
+
     const payload = await callApi('start_server')
-    showToast(payload?.ok ? 'Server is running.' : 'Could not start the server.', Boolean(payload?.ok))
+    showToast(payload?.ok ? 'Server is running.' : payload?.message || 'Could not start the server.', Boolean(payload?.ok))
     await refreshState()
   }
 
   async function onStop() {
+    if (config.serverMode === 'stdio') {
+      showToast('In stdio mode, the client manages the process lifecycle.')
+      return
+    }
+
     const payload = await callApi('stop_server')
     showToast(payload?.ok ? 'Server stopped.' : 'Server is not running.', Boolean(payload?.ok))
     await refreshState()
@@ -86,82 +113,139 @@ export default function App() {
   }
 
   async function connectClient(clientName) {
+    const ok = await saveConfig()
+    if (!ok) return
+
     const payload = await callApi('connect_client', clientName)
-    showToast(payload?.ok ? `${clientName} connected.` : `Could not connect ${clientName}.`, Boolean(payload?.ok))
+    showToast(
+      payload?.ok ? `${clientName} connected.` : payload?.message || `Could not connect ${clientName}.`,
+      Boolean(payload?.ok)
+    )
+    await refreshState()
   }
 
-  const endpointPreview = 'http://127.0.0.1:8000/mcp'
+  const isHttp = config.serverMode === 'streamable-http'
 
   return (
-    <div className="min-h-screen bg-[#000000] text-zinc-100">
+    <Theme appearance="dark" accentColor="cyan" grayColor="sand" radius="large" scaling="100%">
       <Toaster
         position="top-right"
         toastOptions={{
           style: {
-            background: '#0f0f0f',
-            color: '#f4f4f5',
+            background: '#0b0b0b',
+            color: '#f3fbff',
             borderRadius: '12px',
-            border: 'none'
+            border: '1px solid #2a2a2a'
           }
         }}
       />
-      <main className="mx-auto w-full max-w-[920px] px-5 py-10 md:px-8">
-        <section className="simple-panel">
-          <div className="mb-7">
-            <img src="./assets/gigsetup-white-full.svg" alt="Gig Setup" className="brand-logo" />
-          </div>
+      <Container size="3" px="4" py="4" className="app-root">
+        <Box className="flat-layout">
+          <Flex direction="column" gap="4">
+            <Flex align="center" justify="between" wrap="wrap" gap="3">
+              <Box>
+                <img src="./assets/gigsetup-white-full.svg" alt="Gig Setup" className="brand-logo" />
+                <Heading size="8" mt="4">MCP Control Center</Heading>
+                <Text size="3" color="gray">One-click local MCP setup for VS Code, Cursor, and Claude.</Text>
+              </Box>
+            </Flex>
 
-          <h1 className="text-3xl font-semibold leading-tight text-zinc-100 md:text-4xl">Music organizer</h1>
-          <p className="subtitle mt-3 text-lg text-zinc-400">Click Start to turn on your local helper.</p>
+            <Separator size="4" />
 
-          <div className="mt-6 flex flex-wrap items-center gap-3">
-            <button className={`btn-site ${running ? 'btn-site-danger' : 'btn-site-primary'}`} onClick={onToggleServer}>
-              {running ? <CircleStop size={18} /> : <CirclePlay size={18} />}
-              <span>{running ? 'Stop' : 'Start'}</span>
-            </button>
-            <StatusBadge ready={ready} running={running} />
-          </div>
+            <Grid columns={{ initial: '1', md: '2' }} gap="4">
+              <Box>
+                <Text size="2" weight="medium" mb="2" as="div">Server name</Text>
+                <TextField.Root
+                  value={config.serverName}
+                  onChange={(e) => setConfig((prev) => ({ ...prev, serverName: e.target.value }))}
+                  placeholder="dj-music-metadata"
+                />
+              </Box>
 
-          <div className="mt-6 rounded-xl bg-zinc-900 px-4 py-3 text-sm text-zinc-400">
-            <p className="subtitle">Local server address:</p>
-            <p className="mt-1 font-mono text-zinc-200">{endpointPreview}</p>
-          </div>
+              <Box>
+                <Text size="2" weight="medium" mb="2" as="div">Transport mode</Text>
+                <RadioCards.Root
+                  columns={{ initial: '1', sm: '2' }}
+                  value={config.serverMode}
+                  onValueChange={(value) => setConfig((prev) => ({ ...prev, serverMode: value }))}
+                >
+                  <RadioCards.Item value="stdio">
+                    <Flex align="center" gap="2">
+                      <Cable size={16} />
+                      <Text size="2">stdio (default)</Text>
+                    </Flex>
+                  </RadioCards.Item>
+                  <RadioCards.Item value="streamable-http">
+                    <Flex align="center" gap="2">
+                      <Network size={16} />
+                      <Text size="2">streamable-http</Text>
+                    </Flex>
+                  </RadioCards.Item>
+                </RadioCards.Root>
+              </Box>
 
-          {running && (
-            <div className="mt-8">
-              <h2 className="site-title">Connect now</h2>
-              <p className="subtitle mt-2 text-sm text-zinc-400">Choose where you want to use it:</p>
+              <Box>
+                <Text size="2" weight="medium" mb="2" as="div">Host</Text>
+                <TextField.Root
+                  value={config.host}
+                  onChange={(e) => setConfig((prev) => ({ ...prev, host: e.target.value }))}
+                  placeholder="127.0.0.1"
+                  disabled={!isHttp}
+                />
+              </Box>
 
-              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                <button className="client-btn" onClick={() => connectClient('vscode')}>
-                  <VscVscode size={18} />
-                  <span>VS Code</span>
-                </button>
+              <Box>
+                <Text size="2" weight="medium" mb="2" as="div">Port</Text>
+                <TextField.Root
+                  value={config.port}
+                  onChange={(e) => setConfig((prev) => ({ ...prev, port: e.target.value }))}
+                  placeholder="8000"
+                  disabled={!isHttp}
+                />
+              </Box>
+            </Grid>
 
-                <button className="client-btn" onClick={() => connectClient('cursor')}>
-                  <SiCursor size={18} />
-                  <span>Cursor</span>
-                </button>
+            <Flex align="center" gap="3" wrap="wrap">
+              <Button size="3" onClick={onToggleServer} color={running ? 'ruby' : 'cyan'}>
+                {running ? <CircleStop size={18} /> : <CirclePlay size={18} />}
+                {isHttp ? (running ? 'Stop server' : 'Start server') : 'Check stdio mode'}
+              </Button>
+              <StatusBadge ready={ready} running={running} mode={config.serverMode} />
+            </Flex>
 
-                <button className="client-btn" onClick={() => connectClient('claude')}>
-                  <SiClaude size={18} />
-                  <span>Claude</span>
-                </button>
-              </div>
-            </div>
-          )}
-        </section>
-      </main>
-    </div>
+            {(running || !isHttp) && (
+              <>
+                <Separator size="4" />
+                <Text size="3" weight="medium">Connect client</Text>
+                <Grid columns={{ initial: '1', sm: '3' }} gap="3">
+                  <Button className="client-btn" size="3" variant="soft" onClick={() => connectClient('vscode')}>
+                    <VscVscode size={18} /> VS Code
+                  </Button>
+                  <Button className="client-btn" size="3" variant="soft" onClick={() => connectClient('cursor')}>
+                    <SiCursor size={18} /> Cursor
+                  </Button>
+                  <Button className="client-btn" size="3" variant="soft" onClick={() => connectClient('claude')}>
+                    <SiClaude size={18} /> Claude
+                  </Button>
+                </Grid>
+              </>
+            )}
+          </Flex>
+        </Box>
+      </Container>
+    </Theme>
   )
 }
 
-function StatusBadge({ ready, running }) {
+function StatusBadge({ ready, running, mode }) {
   if (!ready) {
-    return <span className="status-site bg-zinc-800 text-zinc-300">Connecting...</span>
+    return <Badge color="gray" variant="soft" size="3">Connecting...</Badge>
+  }
+  if (mode === 'stdio') {
+    return <Badge color="amber" variant="soft" size="3">Managed by client</Badge>
   }
   if (running) {
-    return <span className="status-site bg-zinc-800 text-emerald-300">Running</span>
+    return <Badge color="green" variant="soft" size="3">Running</Badge>
   }
-  return <span className="status-site bg-zinc-800 text-zinc-400">Stopped</span>
+  return <Badge color="gray" variant="soft" size="3">Stopped</Badge>
 }

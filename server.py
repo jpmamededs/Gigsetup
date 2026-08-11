@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import os
+import sys
 import warnings
 from pathlib import Path
 from typing import Any
@@ -19,6 +21,50 @@ from metadata_store import apply_metadata, is_audio_file, read_track_metadata
 from organizer import build_organized_metadata, build_proposed_filename, diff_metadata
 
 mcp = FastMCP(name="dj-metadata-mcp-python")
+
+
+def _ensure_windows_stdio_streams() -> bool:
+    if os.name != "nt":
+        return bool(sys.stdin is not None and sys.stdout is not None)
+
+    stdin_ok = sys.stdin is not None and getattr(sys.stdin, "buffer", None) is not None
+    stdout_ok = sys.stdout is not None and getattr(sys.stdout, "buffer", None) is not None
+    if stdin_ok and stdout_ok:
+        return True
+
+    try:
+        import ctypes
+        import msvcrt
+
+        kernel32 = ctypes.windll.kernel32
+        STD_INPUT_HANDLE = -10
+        STD_OUTPUT_HANDLE = -11
+        STD_ERROR_HANDLE = -12
+
+        stdin_handle = kernel32.GetStdHandle(STD_INPUT_HANDLE)
+        stdout_handle = kernel32.GetStdHandle(STD_OUTPUT_HANDLE)
+        stderr_handle = kernel32.GetStdHandle(STD_ERROR_HANDLE)
+
+        if stdin_handle in (0, -1) or stdout_handle in (0, -1):
+            return False
+
+        stdin_fd = msvcrt.open_osfhandle(stdin_handle, os.O_RDONLY)
+        stdout_fd = msvcrt.open_osfhandle(stdout_handle, os.O_WRONLY)
+        stderr_fd = msvcrt.open_osfhandle(stderr_handle, os.O_WRONLY) if stderr_handle not in (0, -1) else None
+
+        stdin_bin = os.fdopen(stdin_fd, "rb", buffering=0)
+        stdout_bin = os.fdopen(stdout_fd, "wb", buffering=0)
+
+        sys.stdin = io.TextIOWrapper(stdin_bin, encoding="utf-8", newline="\n")
+        sys.stdout = io.TextIOWrapper(stdout_bin, encoding="utf-8", newline="\n", write_through=True)
+
+        if stderr_fd is not None:
+            stderr_bin = os.fdopen(stderr_fd, "wb", buffering=0)
+            sys.stderr = io.TextIOWrapper(stderr_bin, encoding="utf-8", newline="\n", write_through=True)
+
+        return True
+    except Exception:
+        return False
 
 
 def iter_audio_files(folder_path: Path, recursive: bool) -> list[Path]:
@@ -308,6 +354,12 @@ def run_server_from_env() -> None:
     transport = os.getenv("MCP_TRANSPORT", "stdio").strip().lower()
 
     if transport == "stdio":
+        if not _ensure_windows_stdio_streams():
+            raise RuntimeError(
+                "stdio transport requires valid stdin/stdout streams. "
+                "If this machine does not provide them for windowed executables, "
+                "switch to streamable-http mode in the launcher."
+            )
         print("MCP server running in local stdio mode.")
         mcp.run(transport="stdio")
     elif transport == "streamable-http":
