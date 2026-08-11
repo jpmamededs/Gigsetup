@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import warnings
 from pathlib import Path
 from typing import Any
@@ -27,12 +28,13 @@ def iter_audio_files(folder_path: Path, recursive: bool) -> list[Path]:
 
 
 @mcp.tool()
-def scan_tracks(folderPath: str, recursive: bool = True) -> dict[str, Any]:
+async def scan_tracks(folderPath: str, recursive: bool = True) -> dict[str, Any]:
     folder = Path(folderPath)
     if not folder.exists() or not folder.is_dir():
         raise ValueError("Invalid or non-existent folder")
 
-    tracks = [read_track_metadata(file_path) for file_path in iter_audio_files(folder, recursive)]
+    audio_files = iter_audio_files(folder, recursive)
+    tracks = await asyncio.gather(*[asyncio.to_thread(read_track_metadata, file_path) for file_path in audio_files])
     missing_any = sum(1 for track in tracks if track.get("missingFields"))
 
     return {
@@ -44,7 +46,7 @@ def scan_tracks(folderPath: str, recursive: bool = True) -> dict[str, Any]:
 
 
 @mcp.tool()
-def suggest_verified_metadata(
+async def suggest_verified_metadata(
     folderPath: str,
     recursive: bool = True,
     minConfidence: float = 0.78,
@@ -54,56 +56,53 @@ def suggest_verified_metadata(
     if not folder.exists() or not folder.is_dir():
         raise ValueError("Invalid or non-existent folder")
 
-    tracks = [read_track_metadata(file_path) for file_path in iter_audio_files(folder, recursive)]
+    audio_files = iter_audio_files(folder, recursive)
+    tracks = await asyncio.gather(*[asyncio.to_thread(read_track_metadata, file_path) for file_path in audio_files])
 
     if onlyMissing:
         tracks = [t for t in tracks if t.get("missingFields")]
 
-    async def _run() -> list[dict[str, Any]]:
-        tasks = []
-        for track in tracks:
-            if track.get("error"):
-                continue
-            tasks.append(
-                build_verified_suggestion(
-                    file_path=Path(track["filePath"]),
-                    current_title=track.get("title"),
-                    current_artist=track.get("artist"),
-                    current_album=track.get("album"),
-                    current_album_artist=track.get("albumArtist"),
-                    current_genres=track.get("genre") or [],
-                    current_comments=track.get("comment") or [],
-                    min_confidence=minConfidence,
-                )
+    candidate_tracks = [t for t in tracks if not t.get("error")]
+    tasks = []
+    for track in candidate_tracks:
+        tasks.append(
+            build_verified_suggestion(
+                file_path=Path(track["filePath"]),
+                current_title=track.get("title"),
+                current_artist=track.get("artist"),
+                current_album=track.get("album"),
+                current_album_artist=track.get("albumArtist"),
+                current_genres=track.get("genre") or [],
+                current_comments=track.get("comment") or [],
+                min_confidence=minConfidence,
             )
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        normalized: list[dict[str, Any]] = []
-        for result, track in zip(results, [t for t in tracks if not t.get("error")]):
-            if isinstance(result, Exception):
-                normalized.append(
-                    {
-                        "filePath": track.get("filePath"),
-                        "verified": False,
-                        "confidence": 0.0,
-                        "apiStatus": {
-                            "musicbrainz": "error",
-                            "itunes": "error",
-                        },
-                        "suggested": {
-                            "title": track.get("title"),
-                            "artist": track.get("artist"),
-                            "genre": track.get("genre") or [],
-                            "comment": ["Suggestion failed due to API/network error"],
-                        },
-                        "evidence": [],
-                        "error": str(result),
-                    }
-                )
-            else:
-                normalized.append(result)
-        return normalized
+        )
 
-    suggestions = asyncio.run(_run())
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    suggestions: list[dict[str, Any]] = []
+    for result, track in zip(results, candidate_tracks):
+        if isinstance(result, Exception):
+            suggestions.append(
+                {
+                    "filePath": track.get("filePath"),
+                    "verified": False,
+                    "confidence": 0.0,
+                    "apiStatus": {
+                        "musicbrainz": "error",
+                        "itunes": "error",
+                    },
+                    "suggested": {
+                        "title": track.get("title"),
+                        "artist": track.get("artist"),
+                        "genre": track.get("genre") or [],
+                        "comment": ["Suggestion failed due to API/network error"],
+                    },
+                    "evidence": [],
+                    "error": str(result),
+                }
+            )
+        else:
+            suggestions.append(result)
 
     return {
         "folderPath": str(folder),
@@ -116,7 +115,7 @@ def suggest_verified_metadata(
 
 
 @mcp.tool()
-def apply_verified_metadata(
+async def apply_verified_metadata(
     updates: list[dict[str, Any]],
     dryRun: bool = True,
     strict: bool = True,
@@ -182,7 +181,7 @@ def apply_verified_metadata(
             )
             continue
 
-        ok, reason = apply_metadata(file_path, metadata)
+        ok, reason = await asyncio.to_thread(apply_metadata, file_path, metadata)
         results.append(
             {
                 "filePath": str(file_path),
@@ -207,7 +206,7 @@ def apply_verified_metadata(
 
 
 @mcp.tool()
-def organize_metadata(
+async def organize_metadata(
     folderPath: str,
     recursive: bool = True,
     dryRun: bool = True,
@@ -217,7 +216,8 @@ def organize_metadata(
     if not folder.exists() or not folder.is_dir():
         raise ValueError("Invalid or non-existent folder")
 
-    tracks = [read_track_metadata(file_path) for file_path in iter_audio_files(folder, recursive)]
+    audio_files = iter_audio_files(folder, recursive)
+    tracks = await asyncio.gather(*[asyncio.to_thread(read_track_metadata, file_path) for file_path in audio_files])
     results: list[dict[str, Any]] = []
 
     for track in tracks:
@@ -269,7 +269,7 @@ def organize_metadata(
             )
             continue
 
-        ok, reason = apply_metadata(original_path, organized)
+        ok, reason = await asyncio.to_thread(apply_metadata, original_path, organized)
         renamed_to = None
 
         if ok and rename_needed:
@@ -277,7 +277,7 @@ def organize_metadata(
                 ok = False
                 reason = f"Cannot rename: target already exists ({proposed_path.name})"
             else:
-                original_path.rename(proposed_path)
+                await asyncio.to_thread(original_path.rename, proposed_path)
                 renamed_to = str(proposed_path)
 
         results.append(
@@ -304,6 +304,52 @@ def organize_metadata(
     }
 
 
+def run_server_from_env() -> None:
+    transport = os.getenv("MCP_TRANSPORT", "stdio").strip().lower()
+
+    if transport == "stdio":
+        print("MCP server running in local stdio mode.")
+        mcp.run(transport="stdio")
+    elif transport == "streamable-http":
+        from starlette.applications import Starlette
+        from starlette.middleware.base import BaseHTTPMiddleware
+        from starlette.responses import JSONResponse
+        import uvicorn
+
+        class ApiKeyAuthMiddleware(BaseHTTPMiddleware):
+            async def dispatch(self, request, call_next):
+                api_key = os.getenv("MCP_API_KEY", "").strip()
+                # In local mode, allow unauthenticated access when key is not configured.
+                if not api_key:
+                    return await call_next(request)
+
+                auth = request.headers.get("Authorization", "")
+                expected = f"Bearer {api_key}"
+                if auth != expected:
+                    return JSONResponse(
+                        {"error": "Unauthorized"},
+                        status_code=401,
+                    )
+
+                return await call_next(request)
+
+        host = os.getenv("MCP_HOST", "0.0.0.0")
+        port = int(os.getenv("MCP_PORT", "8000"))
+
+        mcp.settings.host = host
+        mcp.settings.port = port
+        mcp.settings.streamable_http_path = "/mcp"
+
+        mcp_app = mcp.streamable_http_app()
+        app = Starlette()
+        app.add_middleware(ApiKeyAuthMiddleware)
+        app.mount("/", mcp_app)
+
+        print(f"MCP server running in remote mode at http://{host}:{port}/mcp")
+        uvicorn.run(app, host=host, port=port)
+    else:
+        raise ValueError("Invalid MCP_TRANSPORT. Use 'stdio' or 'streamable-http'.")
+
+
 if __name__ == "__main__":
-    print("Server is running. Use Ctrl+C to stop.")
-    mcp.run()
+    run_server_from_env()

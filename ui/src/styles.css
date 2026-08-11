@@ -1,0 +1,84 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --ink: #e4e4e7;
+}
+
+body {
+  margin: 0;
+  font-family: 'Gotham', 'Montserrat', 'Avenir Next', 'Segoe UI', Arial, sans-serif;
+  color: var(--ink);
+  background: #000000;
+}
+
+.simple-panel {
+  background: transparent;
+  padding: 1.4rem;
+  box-shadow: none;
+}
+
+.brand-logo {
+  width: min(170px, 46vw);
+  height: auto;
+  display: block;
+}
+
+.site-title {
+  margin: 0;
+  font-family: 'Manrope', 'Segoe UI', Arial, sans-serif;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #f4f4f5;
+}
+
+.subtitle {
+  font-family: 'Manrope', 'Segoe UI', Arial, sans-serif;
+}
+
+.btn-site {
+  border: none;
+  cursor: pointer;
+  border-radius: 0.75rem;
+  padding: 0.68rem 1.15rem;
+  font-weight: 600;
+  color: #f4f4f5;
+  text-decoration: none;
+  background: #171717;
+  transition: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.btn-site-primary {
+  background: #151515;
+  color: #ffffff;
+}
+
+.btn-site-danger {
+  background: #151515;
+  color: #f5a3a3;
+}
+
+.client-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  border: none;
+  border-radius: 0.75rem;
+  background: #121212;
+  color: #f4f4f5;
+  font-weight: 600;
+  padding: 0.62rem 0.8rem;
+  cursor: pointer;
+}
+
+.status-site {
+  border-radius: 999px;
+  padding: 0.35rem 0.8rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  font-family: 'Manrope', 'Segoe UI', Arial, sans-serif;
+}

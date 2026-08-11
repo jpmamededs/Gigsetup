@@ -2,3 +2,37 @@ __pycache__/
 *.pyc
 .venv/
 node_modules/
+ui/node_modules/
+ui/dist/
+
+# Python caches and tooling
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Build artifacts
+build/
+dist/
+*.spec
+*.exe
+*.msi
+*.zip
+
+# Local packaging scripts/files
+build_exe.bat
+
+# Generated icon assets
+assets/dj_launcher.ico
+assets/dj_launcher.png
+
+# Environment and local config
+.env
+.env.*
+!.env.example
+
+# OS/editor temporary files
+.DS_Store
+Thumbs.db
+*.log

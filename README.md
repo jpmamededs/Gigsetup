@@ -42,6 +42,47 @@ pip install -r requirements.txt
 python server.py
 ```
 
+## Launcher desktop (React + Tailwind + Python)
+
+O projeto agora inclui um launcher desktop para:
+
+- Iniciar/parar o servidor MCP
+- Selecionar modo `streamable-http` ou `stdio`
+- Configurar conexao automatica para VS Code, Cursor e Claude Code
+
+Stack da interface:
+
+- Shell desktop: `pywebview` (Python)
+- Frontend: `React` + `Tailwind CSS` (Vite)
+
+Rodar launcher em desenvolvimento:
+
+```bash
+cd ui
+npm install
+npm run build
+cd ..
+python launcher.py
+```
+
+Observacao:
+
+- Se o launcher for executavel (`.exe`), ele tambem funciona como processo do servidor via `--server`.
+
+## Gerar executavel (Windows)
+
+Use o script (compila frontend e empacota exe):
+
+```bat
+build_exe.bat
+```
+
+Resultado esperado:
+
+```text
+dist/DJMetadataLauncher.exe
+```
+
 Example (Windows PowerShell):
 
 ```powershell
@@ -54,6 +95,68 @@ python server.py
 ## MCP setup (VS Code)
 
 Example file: [mcp.server.json](mcp.server.json)
+
+Opcao recomendada: use o launcher e clique em `Conectar automaticamente` com `Agente = VS Code`.
+
+## Connect (local and remote)
+
+### 1. Local (recommended for personal use)
+
+Run:
+
+```bash
+python server.py
+```
+
+Then configure your MCP client with stdio command.
+
+### 2. Remote/public (HTTP + API key)
+
+Create an `.env` file from `.env.example` and set `MCP_API_KEY`.
+
+Run:
+
+```bash
+MCP_TRANSPORT=streamable-http MCP_HOST=0.0.0.0 MCP_PORT=8000 python server.py
+```
+
+Your endpoint will be:
+
+```text
+https://your-domain.com/mcp
+```
+
+### Cursor (remote)
+
+`mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "dj-metadata": {
+      "url": "https://your-domain.com/mcp",
+      "headers": {
+        "Authorization": "Bearer <your-api-key>"
+      }
+    }
+  }
+}
+```
+
+Opcao recomendada: use o launcher e clique em `Conectar automaticamente` com `Agente = Cursor`.
+
+### Claude Code (remote)
+
+```bash
+claude mcp add --transport http dj-metadata https://your-domain.com/mcp --header "Authorization: Bearer <your-api-key>"
+```
+
+Opcao recomendada: use o launcher e clique em `Conectar automaticamente` com `Agente = Claude Code`.
+
+### Notes
+
+- This server modifies local files; if you host it remotely, ensure each user is isolated to their own folder.
+- Keep `dryRun=true` as the default workflow before writing metadata.
 
 ## Recommended workflow
 
