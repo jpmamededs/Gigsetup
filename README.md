@@ -15,6 +15,13 @@ MCP server for DJs to organize metadata with API-based validation and batch writ
 1. scan_tracks
 2. suggest_verified_metadata
 3. apply_verified_metadata
+4. organize_metadata
+5. organize_directory_by_genre
+
+### Notes about metadata correction
+
+- `suggest_verified_metadata` agora aceita `fixExistingMetadata` (default `true`) para sugerir correcoes mesmo quando os campos ja estao preenchidos.
+- Isso ajuda a corrigir genero preenchido incorretamente e limpar `title`/`artist` quando vierem misturados.
 
 ## Requirements
 

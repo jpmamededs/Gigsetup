@@ -97,6 +97,7 @@ async def suggest_verified_metadata(
     recursive: bool = True,
     minConfidence: float = 0.78,
     onlyMissing: bool = True,
+    fixExistingMetadata: bool = True,
 ) -> dict[str, Any]:
     folder = Path(folderPath)
     if not folder.exists() or not folder.is_dir():
@@ -105,7 +106,7 @@ async def suggest_verified_metadata(
     audio_files = iter_audio_files(folder, recursive)
     tracks = await asyncio.gather(*[asyncio.to_thread(read_track_metadata, file_path) for file_path in audio_files])
 
-    if onlyMissing:
+    if onlyMissing and not fixExistingMetadata:
         tracks = [t for t in tracks if t.get("missingFields")]
 
     candidate_tracks = [t for t in tracks if not t.get("error")]
@@ -153,6 +154,8 @@ async def suggest_verified_metadata(
     return {
         "folderPath": str(folder),
         "minConfidence": minConfidence,
+        "onlyMissing": onlyMissing,
+        "fixExistingMetadata": fixExistingMetadata,
         "totalSuggestions": len(suggestions),
         "verifiedCount": sum(1 for s in suggestions if s.get("verified")),
         "blockedCount": sum(1 for s in suggestions if not s.get("verified")),
@@ -345,6 +348,124 @@ async def organize_metadata(
         "dryRun": dryRun,
         "changed": sum(1 for r in results if r.get("changed")),
         "written": sum(1 for r in results if r.get("ok") and not r.get("dryRun") and r.get("changed")),
+        "failed": sum(1 for r in results if not r.get("ok")),
+        "results": results,
+    }
+
+
+def _sanitize_folder_name(value: str) -> str:
+    cleaned = " ".join(value.split())
+    cleaned = "".join(ch for ch in cleaned if ch not in '<>:"/\\|?*')
+    return cleaned.strip().strip(".")
+
+
+def _target_genre_folder(track: dict[str, Any], fallback_folder: str) -> str:
+    genres = track.get("genre") or []
+    if not genres:
+        return fallback_folder
+    first_genre = str(genres[0]).strip()
+    if not first_genre:
+        return fallback_folder
+    return _sanitize_folder_name(first_genre) or fallback_folder
+
+
+@mcp.tool()
+async def organize_directory_by_genre(
+    folderPath: str,
+    recursive: bool = True,
+    dryRun: bool = True,
+    fallbackFolder: str = "Sem Genero",
+) -> dict[str, Any]:
+    folder = Path(folderPath)
+    if not folder.exists() or not folder.is_dir():
+        raise ValueError("Invalid or non-existent folder")
+
+    fallback_folder = _sanitize_folder_name(fallbackFolder) or "Sem Genero"
+    audio_files = iter_audio_files(folder, recursive)
+
+    tracks = await asyncio.gather(*[asyncio.to_thread(read_track_metadata, file_path) for file_path in audio_files])
+    results: list[dict[str, Any]] = []
+
+    for track in tracks:
+        file_path_raw = track.get("filePath")
+        if not file_path_raw:
+            continue
+
+        source_path = Path(file_path_raw)
+        if track.get("error"):
+            results.append(
+                {
+                    "filePath": str(source_path),
+                    "ok": False,
+                    "reason": track.get("error"),
+                }
+            )
+            continue
+
+        genre_folder = _target_genre_folder(track, fallback_folder)
+        destination_dir = folder / genre_folder
+        destination_path = destination_dir / source_path.name
+        will_move = source_path.parent != destination_dir
+
+        if not will_move:
+            results.append(
+                {
+                    "filePath": str(source_path),
+                    "ok": True,
+                    "dryRun": dryRun,
+                    "moved": False,
+                    "targetFolder": genre_folder,
+                    "targetPath": str(destination_path),
+                }
+            )
+            continue
+
+        if destination_path.exists():
+            results.append(
+                {
+                    "filePath": str(source_path),
+                    "ok": False,
+                    "dryRun": dryRun,
+                    "moved": False,
+                    "targetFolder": genre_folder,
+                    "targetPath": str(destination_path),
+                    "reason": "Target file already exists",
+                }
+            )
+            continue
+
+        if dryRun:
+            results.append(
+                {
+                    "filePath": str(source_path),
+                    "ok": True,
+                    "dryRun": True,
+                    "moved": True,
+                    "targetFolder": genre_folder,
+                    "targetPath": str(destination_path),
+                }
+            )
+            continue
+
+        await asyncio.to_thread(destination_dir.mkdir, parents=True, exist_ok=True)
+        await asyncio.to_thread(source_path.rename, destination_path)
+        results.append(
+            {
+                "filePath": str(source_path),
+                "ok": True,
+                "dryRun": False,
+                "moved": True,
+                "targetFolder": genre_folder,
+                "targetPath": str(destination_path),
+            }
+        )
+
+    return {
+        "folderPath": str(folder),
+        "dryRun": dryRun,
+        "fallbackFolder": fallback_folder,
+        "total": len(results),
+        "moved": sum(1 for r in results if r.get("ok") and r.get("moved")),
         "failed": sum(1 for r in results if not r.get("ok")),
         "results": results,
     }

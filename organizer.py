@@ -90,6 +90,47 @@ def _normalize_artist(artist: str | None) -> str | None:
     return ", ".join(deduped)
 
 
+def _split_artist_tokens(artist: str | None) -> list[str]:
+    normalized = _normalize_artist(artist)
+    if not normalized:
+        return []
+    return [_normalize_spaces(token) for token in normalized.split(",") if _normalize_spaces(token)]
+
+
+def _remove_artist_from_title_prefix(title: str, artist: str | None) -> str:
+    if not title or not artist:
+        return title
+
+    work = title
+    artist_tokens = _split_artist_tokens(artist)
+    if not artist_tokens:
+        return work
+
+    for token in artist_tokens:
+        pattern = rf"^\s*{re.escape(token)}\s*[-–—:]\s*"
+        work = re.sub(pattern, "", work, flags=re.IGNORECASE)
+
+    return _normalize_spaces(work)
+
+
+def _extract_featured_artists_from_title(title: str) -> tuple[str, list[str]]:
+    if not title:
+        return title, []
+
+    match = re.search(r"\s+(feat\.?|ft\.?)\s+(.+)$", title, flags=re.IGNORECASE)
+    if not match:
+        return title, []
+
+    featured_raw = _normalize_spaces(match.group(2))
+    cleaned_title = _normalize_spaces(title[: match.start()])
+
+    featured_raw = re.split(r"\s*[-–—]\s*", featured_raw, maxsplit=1)[0]
+    featured_raw = featured_raw.replace("&", ",")
+    featured_raw = re.sub(r"\b(and|x|with)\b", ",", featured_raw, flags=re.IGNORECASE)
+    featured = [_normalize_spaces(p) for p in featured_raw.split(",") if _normalize_spaces(p)]
+    return cleaned_title, featured
+
+
 def _normalize_title(title: str | None, fallback_stem: str) -> str | None:
     source = title or fallback_stem
     if not source:
@@ -150,8 +191,23 @@ def build_organized_metadata(track: dict[str, Any]) -> dict[str, Any]:
 
     inferred_artist, inferred_title = _split_artist_title(stem)
 
-    title = _normalize_title(track.get("title"), inferred_title or stem)
-    artist = _normalize_artist(track.get("artist") or inferred_artist)
+    raw_artist = track.get("artist") or inferred_artist
+    raw_title = track.get("title") or inferred_title or stem
+
+    artist = _normalize_artist(raw_artist)
+    raw_title = _remove_artist_from_title_prefix(raw_title, artist)
+    raw_title, featured_artists = _extract_featured_artists_from_title(raw_title)
+
+    if featured_artists:
+        merged_artists = _split_artist_tokens(artist)
+        for feat_artist in featured_artists:
+            key = feat_artist.lower()
+            if key not in {a.lower() for a in merged_artists}:
+                merged_artists.append(feat_artist)
+        artist = _normalize_artist(", ".join(merged_artists))
+
+    title = _normalize_title(raw_title, inferred_title or stem)
+    title = _remove_artist_from_title_prefix(title or "", artist) or title
 
     genres = _normalize_genres(track.get("genre") or [])
     comments = [c for c in (track.get("comment") or []) if str(c).strip()]

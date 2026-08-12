@@ -439,6 +439,83 @@ def _merge_genres(*genre_lists: list[str]) -> list[str]:
     return merged
 
 
+def _normalize_artist_text(artist: str | None) -> str | None:
+    if not artist:
+        return None
+
+    work = artist
+    work = re.sub(r"\b(feat\.?|ft\.?)\b", ",", work, flags=re.IGNORECASE)
+    work = work.replace("&", ",")
+    work = re.sub(r"\b(and|x|with)\b", ",", work, flags=re.IGNORECASE)
+    tokens = [" ".join(part.split()) for part in work.split(",") if " ".join(part.split())]
+
+    deduped: list[str] = []
+    seen = set()
+    for token in tokens:
+        key = token.lower()
+        if key not in seen:
+            deduped.append(token)
+            seen.add(key)
+
+    if not deduped:
+        return None
+    return ", ".join(deduped)
+
+
+def _split_artist_tokens(artist: str | None) -> list[str]:
+    normalized = _normalize_artist_text(artist)
+    if not normalized:
+        return []
+    return [part.strip() for part in normalized.split(",") if part.strip()]
+
+
+def _remove_artist_from_title(title: str | None, artist: str | None) -> str | None:
+    if not title:
+        return title
+
+    cleaned = title
+    for token in _split_artist_tokens(artist):
+        pattern = rf"^\s*{re.escape(token)}\s*[-–—:]\s*"
+        cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned or None
+
+
+def _extract_featured_from_title(title: str | None) -> tuple[str | None, list[str]]:
+    if not title:
+        return title, []
+
+    match = re.search(r"\s+(feat\.?|ft\.?)\s+(.+)$", title, flags=re.IGNORECASE)
+    if not match:
+        return title, []
+
+    featured_raw = match.group(2)
+    base = re.sub(r"\s+", " ", title[: match.start()]).strip()
+    featured_raw = re.split(r"\s*[-–—]\s*", featured_raw, maxsplit=1)[0]
+    featured_raw = featured_raw.replace("&", ",")
+    featured_raw = re.sub(r"\b(and|x|with)\b", ",", featured_raw, flags=re.IGNORECASE)
+    featured = [" ".join(part.split()) for part in featured_raw.split(",") if " ".join(part.split())]
+    return base or None, featured
+
+
+def _finalize_title_artist(title: str | None, artist: str | None, fallback_artist: str | None) -> tuple[str | None, str | None]:
+    normalized_artist = _normalize_artist_text(artist) or _normalize_artist_text(fallback_artist)
+    cleaned_title = clean_track_text(title)
+    cleaned_title = _remove_artist_from_title(cleaned_title, normalized_artist)
+    cleaned_title, featured = _extract_featured_from_title(cleaned_title)
+
+    if featured:
+        merged = _split_artist_tokens(normalized_artist)
+        seen = {m.lower() for m in merged}
+        for feat_artist in featured:
+            if feat_artist.lower() not in seen:
+                merged.append(feat_artist)
+                seen.add(feat_artist.lower())
+        normalized_artist = _normalize_artist_text(", ".join(merged))
+
+    return cleaned_title, normalized_artist
+
+
 async def _safe_get_json(
     *,
     url: str,
@@ -551,7 +628,7 @@ async def build_verified_suggestion(
 
     title = clean_track_text(current_title)
     artist = clean_track_text(current_artist)
-    genres = list(current_genres)
+    genres: list[str] = []
 
     evidences: list[dict[str, Any]] = []
     confidences = []
@@ -600,13 +677,15 @@ async def build_verified_suggestion(
     if not artist:
         artist = inferred_artist
 
-    genres = _merge_genres(
-        genres,
+    external_genres = _merge_genres(
         best_mb.genres if best_mb else [],
         best_it.genres if best_it else [],
         best_sp.genres if best_sp else [],
         best_sc.genres if best_sc else [],
     )
+    genres = external_genres or _merge_genres(current_genres)
+
+    title, artist = _finalize_title_artist(title, artist, inferred_artist)
 
     final_confidence = max(confidences) if confidences else 0.0
     verified = final_confidence >= min_confidence
