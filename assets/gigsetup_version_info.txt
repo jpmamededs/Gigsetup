@@ -2,8 +2,8 @@
 # Arquivo gerado automaticamente por scripts/generate_version_info.py
 VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=(2026, 8, 12, 2205),
-    prodvers=(2026, 8, 12, 2205),
+    filevers=(2026, 8, 12, 2230),
+    prodvers=(2026, 8, 12, 2230),
     mask=0x3F,
     flags=0x0,
     OS=0x40004,
@@ -18,12 +18,12 @@ VSVersionInfo(
         [
           StringStruct('CompanyName', 'DJ Music Metadata MCP'),
           StringStruct('FileDescription', 'Launcher desktop para servidor MCP de metadata musical'),
-          StringStruct('FileVersion', '2026.8.12.2205'),
+          StringStruct('FileVersion', '2026.8.12.2230'),
           StringStruct('InternalName', 'Gigsetup'),
           StringStruct('LegalCopyright', 'Copyright (c) 2026'),
           StringStruct('OriginalFilename', 'Gigsetup.exe'),
           StringStruct('ProductName', 'Gigsetup'),
-          StringStruct('ProductVersion', '2026.08.12.2205')
+          StringStruct('ProductVersion', '2026.08.12.2230')
         ]
       )
     ]),

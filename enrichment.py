@@ -20,6 +20,7 @@ class Candidate:
     source: str
     title: str | None
     artist: str | None
+    album: str | None
     genres: list[str]
     confidence: float
     evidence: dict[str, Any]
@@ -29,6 +30,7 @@ class Candidate:
 class ConsensusResult:
     title: str | None
     artist: str | None
+    album: str | None
     genres: list[str]
     confidence: float
     evidence: list[dict[str, Any]]
@@ -153,11 +155,14 @@ def _consensus_from_candidates(
 
     best_title = None
     best_artist = None
+    best_album = None
     for cand in best_cluster:
         if not best_title and cand.title:
             best_title = clean_track_text(cand.title)
         if not best_artist and cand.artist:
             best_artist = clean_track_text(cand.artist)
+        if not best_album and cand.album:
+            best_album = clean_track_text(cand.album)
 
     merged_genres = _merge_genres(*[c.genres for c in best_cluster])
     evidences = [{"source": c.source, **c.evidence} for c in best_cluster]
@@ -165,6 +170,7 @@ def _consensus_from_candidates(
     return ConsensusResult(
         title=best_title,
         artist=best_artist,
+        album=best_album,
         genres=merged_genres,
         confidence=round(max(0.0, min(1.0, best_score)), 4),
         evidence=evidences,
@@ -219,6 +225,7 @@ async def query_musicbrainz(title: str | None, artist: str | None) -> list[Candi
                 source="musicbrainz",
                 title=mb_title,
                 artist=mb_artist,
+                album=((item.get("releases") or [{}])[0] or {}).get("title"),
                 genres=genres,
                 confidence=score,
                 evidence={
@@ -260,6 +267,7 @@ async def query_itunes(title: str | None, artist: str | None) -> list[Candidate]
                 source="itunes",
                 title=it_title,
                 artist=it_artist,
+                album=item.get("collectionName"),
                 genres=genres,
                 confidence=score,
                 evidence={
@@ -329,6 +337,7 @@ async def query_spotify(title: str | None, artist: str | None) -> list[Candidate
                 source="spotify",
                 title=sp_title,
                 artist=sp_artist,
+                album=((item.get("album") or {}).get("name") or None),
                 genres=genres,
                 confidence=score,
                 evidence={
@@ -374,6 +383,7 @@ async def query_soundcloud(title: str | None, artist: str | None) -> list[Candid
                 source="soundcloud",
                 title=sc_title,
                 artist=sc_artist,
+                album=None,
                 genres=[sc_genre] if sc_genre else [],
                 confidence=score,
                 evidence={
@@ -649,6 +659,7 @@ async def build_verified_suggestion(
 
     title = clean_track_text(current_title)
     artist = clean_track_text(current_artist)
+    album = clean_track_text(current_album)
     genres: list[str] = []
 
     evidences: list[dict[str, Any]] = []
@@ -659,30 +670,35 @@ async def build_verified_suggestion(
         evidences.append({"source": best_mb.source, **best_mb.evidence})
         title = title or clean_track_text(best_mb.title) or inferred_title
         artist = artist or clean_track_text(best_mb.artist) or inferred_artist
+        album = album or clean_track_text(best_mb.album)
 
     if best_it:
         confidences.append(best_it.confidence * 0.95)
         evidences.append({"source": best_it.source, **best_it.evidence})
         title = title or clean_track_text(best_it.title) or inferred_title
         artist = artist or clean_track_text(best_it.artist) or inferred_artist
+        album = album or clean_track_text(best_it.album)
 
     if best_sp:
         confidences.append(best_sp.confidence * 1.0)
         evidences.append({"source": best_sp.source, **best_sp.evidence})
         title = title or clean_track_text(best_sp.title) or inferred_title
         artist = artist or clean_track_text(best_sp.artist) or inferred_artist
+        album = album or clean_track_text(best_sp.album)
 
     if best_sc:
         confidences.append(best_sc.confidence * 0.9)
         evidences.append({"source": best_sc.source, **best_sc.evidence})
         title = title or clean_track_text(best_sc.title) or inferred_title
         artist = artist or clean_track_text(best_sc.artist) or inferred_artist
+        album = album or clean_track_text(best_sc.album)
 
     all_candidates = mb_candidates + it_candidates + sp_candidates + sc_candidates
     consensus = _consensus_from_candidates(all_candidates, base_title, base_artist)
     if consensus:
         title = title or consensus.title or inferred_title
         artist = artist or consensus.artist or inferred_artist
+        album = album or consensus.album
         genres = _merge_genres(genres, consensus.genres)
         confidences.append(consensus.confidence)
         evidences.extend(consensus.evidence)
@@ -692,6 +708,8 @@ async def build_verified_suggestion(
         confidences.append(similarity(base_title, title) * 0.15)
     if base_artist and artist:
         confidences.append(similarity(base_artist, artist) * 0.12)
+    if base_album and album:
+        confidences.append(similarity(base_album, album) * 0.08)
 
     if not title:
         title = inferred_title
@@ -744,6 +762,7 @@ async def build_verified_suggestion(
         "suggested": {
             "title": title,
             "artist": artist,
+            "album": album,
             "genre": genres,
             "comment": comments,
         },

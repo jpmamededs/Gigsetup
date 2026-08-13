@@ -180,6 +180,15 @@ def _normalize_genres(genres: list[str]) -> list[str]:
     return deduped
 
 
+def _normalize_album(album: str | None, fallback: str | None = None) -> str | None:
+    source = album or fallback
+    if not source:
+        return None
+    source = source.replace("【", "(").replace("】", ")")
+    source = _clean_noise(source)
+    return source or None
+
+
 def _sanitize_filename_part(text: str) -> str:
     sanitized = re.sub(WINDOWS_FORBIDDEN_CHARS, " ", text)
     sanitized = _normalize_spaces(sanitized).strip(".")
@@ -223,6 +232,7 @@ def build_organized_metadata(track: dict[str, Any]) -> dict[str, Any]:
 
     title = _normalize_title(raw_title, inferred_title or stem)
     title = _remove_artist_from_title_prefix(title or "", artist) or title
+    album = _normalize_album(track.get("album"), file_path.parent.name if file_path.parent else None)
 
     genres = _normalize_genres(track.get("genre") or [])
     comments = [c for c in (track.get("comment") or []) if str(c).strip()]
@@ -230,6 +240,7 @@ def build_organized_metadata(track: dict[str, Any]) -> dict[str, Any]:
     metadata = {
         "title": title,
         "artist": artist,
+        "album": album,
         "albumArtist": artist,
         "genre": genres,
         "comment": comments,
@@ -246,6 +257,7 @@ def diff_metadata(track: dict[str, Any], organized: dict[str, Any]) -> list[str]
 
     current_title = track.get("title")
     current_artist = track.get("artist")
+    current_album = track.get("album")
     current_genre = track.get("genre") or []
     current_comment = track.get("comment") or []
 
@@ -253,6 +265,8 @@ def diff_metadata(track: dict[str, Any], organized: dict[str, Any]) -> list[str]
         changed.append("title")
     if (current_artist or None) != (organized.get("artist") or None):
         changed.append("artist")
+    if (current_album or None) != (organized.get("album") or None):
+        changed.append("album")
     if list(current_genre) != list(organized.get("genre") or []):
         changed.append("genre")
     if list(current_comment) != list(organized.get("comment") or []):

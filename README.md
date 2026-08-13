@@ -8,6 +8,7 @@ MCP server for DJs to organize metadata with API-based validation and batch writ
 - Queries external APIs (MusicBrainz and iTunes) to suggest metadata with evidence.
 - Computes a confidence score per track and blocks low-confidence writes in strict mode.
 - Supports multiple genres per track.
+- Ajusta e grava metadados de album e ano quando disponiveis.
 - Writes metadata to MP3, FLAC, and M4A/MP4.
 
 ## Exposed MCP tools
@@ -17,6 +18,7 @@ MCP server for DJs to organize metadata with API-based validation and batch writ
 3. apply_verified_metadata
 4. organize_metadata
 5. organize_directory_by_genre
+6. organize_directory
 
 ### Notes about metadata correction
 
@@ -225,3 +227,19 @@ Tool: apply_verified_metadata
 ```
 
 Set dryRun to false to write changes.
+
+## Example 4: organize by chosen criteria
+
+Tool: organize_directory
+
+```json
+{
+  "folderPath": "D:/DJ/Setlist",
+  "recursive": true,
+  "dryRun": true,
+  "organizeBy": ["artist", "year", "album"],
+  "fallbackArtist": "Sem Artista",
+  "fallbackYear": "Sem Ano",
+  "fallbackAlbum": "Sem Album"
+}
+```

@@ -8,6 +8,7 @@ from mutagen.easyid3 import EasyID3
 from mutagen.flac import FLAC
 from mutagen.id3 import COMM, ID3
 from mutagen.mp4 import MP4, MP4FreeForm
+import re
 
 SUPPORTED_EXTENSIONS = {".mp3", ".flac", ".m4a", ".mp4", ".wav", ".aiff"}
 
@@ -35,6 +36,7 @@ def read_track_metadata(file_path: Path) -> dict[str, Any]:
     artist = _first_non_empty(tags, ["artist", "TPE1", "\xa9ART"])
     album = _first_non_empty(tags, ["album", "TALB", "\xa9alb"])
     album_artist = _first_non_empty(tags, ["albumartist", "TPE2", "aART"])
+    year = _extract_year(_first_non_empty(tags, ["date", "year", "TDRC", "TYER", "\xa9day"]))
     genre = _as_list(_first_non_empty(tags, ["genre", "TCON", "\xa9gen"]))
     comment = _extract_comments(audio)
 
@@ -55,10 +57,18 @@ def read_track_metadata(file_path: Path) -> dict[str, Any]:
         "artist": artist,
         "album": album,
         "albumArtist": album_artist,
+        "year": year,
         "genre": genre,
         "comment": comment,
         "missingFields": missing,
     }
+
+
+def _extract_year(value: str | None) -> str | None:
+    if not value:
+        return None
+    match = re.search(r"\b(19\d{2}|20\d{2}|21\d{2})\b", str(value))
+    return match.group(1) if match else None
 
 
 def _first_non_empty(tags: Any, keys: list[str]) -> str | None:
@@ -134,6 +144,8 @@ def _write_mp3(file_path: Path, metadata: dict[str, Any]) -> None:
         tags["album"] = [str(metadata["album"])]
     if metadata.get("albumArtist"):
         tags["albumartist"] = [str(metadata["albumArtist"])]
+    if metadata.get("year"):
+        tags["date"] = [str(metadata["year"])]
     if metadata.get("genre"):
         genres = metadata["genre"] if isinstance(metadata["genre"], list) else [metadata["genre"]]
         tags["genre"] = [str(g) for g in genres if str(g).strip()]
@@ -159,6 +171,8 @@ def _write_flac(file_path: Path, metadata: dict[str, Any]) -> None:
         audio["album"] = [str(metadata["album"])]
     if metadata.get("albumArtist"):
         audio["albumartist"] = [str(metadata["albumArtist"])]
+    if metadata.get("year"):
+        audio["date"] = [str(metadata["year"])]
     if metadata.get("genre"):
         audio["genre"] = _as_list(metadata["genre"])
     if metadata.get("comment"):
@@ -176,6 +190,8 @@ def _write_m4a(file_path: Path, metadata: dict[str, Any]) -> None:
         audio["\xa9alb"] = [str(metadata["album"])]
     if metadata.get("albumArtist"):
         audio["aART"] = [str(metadata["albumArtist"])]
+    if metadata.get("year"):
+        audio["\xa9day"] = [str(metadata["year"])]
     if metadata.get("genre"):
         genres = _as_list(metadata["genre"])
         if genres:

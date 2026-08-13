@@ -142,6 +142,7 @@ async def suggest_verified_metadata(
                     "suggested": {
                         "title": track.get("title"),
                         "artist": track.get("artist"),
+                        "album": track.get("album"),
                         "genre": track.get("genre") or [],
                         "comment": ["Suggestion failed due to API/network error"],
                     },
@@ -186,6 +187,7 @@ async def apply_verified_metadata(
         artist = candidate.get("artist", item.get("artist"))
         album = candidate.get("album", item.get("album"))
         album_artist = candidate.get("albumArtist", item.get("albumArtist"))
+        year = candidate.get("year", item.get("year"))
         genre = candidate.get("genre", item.get("genre"))
         comment = candidate.get("comment", item.get("comment"))
 
@@ -261,11 +263,18 @@ async def apply_verified_metadata(
 
         normalized_artist = ", ".join(normalized_artists) if normalized_artists else artist
 
+        normalized_year = None
+        if year is not None:
+            year_match = re.search(r"\b(19\d{2}|20\d{2}|21\d{2})\b", str(year))
+            if year_match:
+                normalized_year = year_match.group(1)
+
         return {
             "title": cleaned_title,
             "artist": normalized_artist,
             "album": album,
             "albumArtist": normalized_artist or album_artist,
+            "year": normalized_year,
             "genre": normalized_genre,
             "comment": normalized_comment,
         }
@@ -462,20 +471,87 @@ def _target_genre_folder(track: dict[str, Any], fallback_folder: str) -> str:
     return _sanitize_folder_name(first_genre) or fallback_folder
 
 
+def _track_year(track: dict[str, Any]) -> str | None:
+    year_value = track.get("year")
+    if not year_value:
+        return None
+    match = re.search(r"\b(19\d{2}|20\d{2}|21\d{2})\b", str(year_value))
+    return match.group(1) if match else None
+
+
+def _target_folder_for_key(track: dict[str, Any], key: str, fallbacks: dict[str, str]) -> str:
+    criterion = (key or "").strip().lower()
+
+    if criterion == "genre":
+        return _target_genre_folder(track, fallbacks["genre"])
+
+    if criterion == "artist":
+        artist = str(track.get("artist") or "").strip()
+        return _sanitize_folder_name(artist) or fallbacks["artist"]
+
+    if criterion == "album":
+        album = str(track.get("album") or "").strip()
+        return _sanitize_folder_name(album) or fallbacks["album"]
+
+    if criterion == "year":
+        year = _track_year(track)
+        return _sanitize_folder_name(year or "") or fallbacks["year"]
+
+    raise ValueError(f"Invalid organizeBy entry: {key}")
+
+
+def _build_destination_dir(
+    root: Path,
+    track: dict[str, Any],
+    organize_by: list[str],
+    fallbacks: dict[str, str],
+) -> tuple[Path, list[str]]:
+    parts: list[str] = []
+    for key in organize_by:
+        part = _target_folder_for_key(track, key, fallbacks)
+        parts.append(part)
+
+    destination = root
+    for part in parts:
+        destination = destination / part
+    return destination, parts
+
+
 @mcp.tool()
-async def organize_directory_by_genre(
+async def organize_directory(
     folderPath: str,
     recursive: bool = True,
     dryRun: bool = True,
-    fallbackFolder: str = "Sem Genero",
+    organizeBy: list[str] | None = None,
+    fallbackGenre: str = "Sem Genero",
+    fallbackArtist: str = "Sem Artista",
+    fallbackYear: str = "Sem Ano",
+    fallbackAlbum: str = "Sem Album",
 ) -> dict[str, Any]:
     folder = Path(folderPath)
     if not folder.exists() or not folder.is_dir():
         raise ValueError("Invalid or non-existent folder")
 
-    fallback_folder = _sanitize_folder_name(fallbackFolder) or "Sem Genero"
-    audio_files = iter_audio_files(folder, recursive)
+    organize_by = organizeBy or ["genre"]
+    if not organize_by:
+        organize_by = ["genre"]
 
+    normalized_criteria: list[str] = []
+    for item in organize_by:
+        value = (item or "").strip().lower()
+        if value not in {"genre", "artist", "year", "album"}:
+            raise ValueError("organizeBy accepts only: genre, artist, year, album")
+        if value not in normalized_criteria:
+            normalized_criteria.append(value)
+
+    fallbacks = {
+        "genre": _sanitize_folder_name(fallbackGenre) or "Sem Genero",
+        "artist": _sanitize_folder_name(fallbackArtist) or "Sem Artista",
+        "year": _sanitize_folder_name(fallbackYear) or "Sem Ano",
+        "album": _sanitize_folder_name(fallbackAlbum) or "Sem Album",
+    }
+
+    audio_files = iter_audio_files(folder, recursive)
     tracks = await asyncio.gather(*[asyncio.to_thread(read_track_metadata, file_path) for file_path in audio_files])
     results: list[dict[str, Any]] = []
 
@@ -495,8 +571,7 @@ async def organize_directory_by_genre(
             )
             continue
 
-        genre_folder = _target_genre_folder(track, fallback_folder)
-        destination_dir = folder / genre_folder
+        destination_dir, target_parts = _build_destination_dir(folder, track, normalized_criteria, fallbacks)
         destination_path = destination_dir / source_path.name
         will_move = source_path.parent != destination_dir
 
@@ -507,7 +582,8 @@ async def organize_directory_by_genre(
                     "ok": True,
                     "dryRun": dryRun,
                     "moved": False,
-                    "targetFolder": genre_folder,
+                    "organizeBy": normalized_criteria,
+                    "targetFolderParts": target_parts,
                     "targetPath": str(destination_path),
                 }
             )
@@ -520,7 +596,8 @@ async def organize_directory_by_genre(
                     "ok": False,
                     "dryRun": dryRun,
                     "moved": False,
-                    "targetFolder": genre_folder,
+                    "organizeBy": normalized_criteria,
+                    "targetFolderParts": target_parts,
                     "targetPath": str(destination_path),
                     "reason": "Target file already exists",
                 }
@@ -534,7 +611,8 @@ async def organize_directory_by_genre(
                     "ok": True,
                     "dryRun": True,
                     "moved": True,
-                    "targetFolder": genre_folder,
+                    "organizeBy": normalized_criteria,
+                    "targetFolderParts": target_parts,
                     "targetPath": str(destination_path),
                 }
             )
@@ -548,7 +626,8 @@ async def organize_directory_by_genre(
                 "ok": True,
                 "dryRun": False,
                 "moved": True,
-                "targetFolder": genre_folder,
+                "organizeBy": normalized_criteria,
+                "targetFolderParts": target_parts,
                 "targetPath": str(destination_path),
             }
         )
@@ -556,12 +635,38 @@ async def organize_directory_by_genre(
     return {
         "folderPath": str(folder),
         "dryRun": dryRun,
-        "fallbackFolder": fallback_folder,
+        "organizeBy": normalized_criteria,
+        "fallbacks": fallbacks,
         "total": len(results),
         "moved": sum(1 for r in results if r.get("ok") and r.get("moved")),
         "failed": sum(1 for r in results if not r.get("ok")),
         "results": results,
     }
+
+
+@mcp.tool()
+async def organize_directory_by_genre(
+    folderPath: str,
+    recursive: bool = True,
+    dryRun: bool = True,
+    fallbackFolder: str = "Sem Genero",
+) -> dict[str, Any]:
+    result = await organize_directory(
+        folderPath=folderPath,
+        recursive=recursive,
+        dryRun=dryRun,
+        organizeBy=["genre"],
+        fallbackGenre=fallbackFolder,
+    )
+
+    fallback_folder = (result.get("fallbacks") or {}).get("genre") or _sanitize_folder_name(fallbackFolder) or "Sem Genero"
+    for item in result.get("results", []):
+        parts = item.get("targetFolderParts") or []
+        if parts and "targetFolder" not in item:
+            item["targetFolder"] = parts[0]
+
+    result["fallbackFolder"] = fallback_folder
+    return result
 
 
 def run_server_from_env() -> None:
