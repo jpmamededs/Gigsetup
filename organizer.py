@@ -71,7 +71,7 @@ def _normalize_artist(artist: str | None) -> str | None:
         return None
 
     work = artist
-    work = re.sub(r"\b(feat\.?|ft\.?)\b", ",", work, flags=re.IGNORECASE)
+    work = re.sub(r"\b(feat\.?|ft\.?|featuring)\b", ",", work, flags=re.IGNORECASE)
     work = work.replace(".", " ")
     work = work.replace("&", ",")
     tokens = [_normalize_spaces(t) for t in work.split(",")]
@@ -117,13 +117,28 @@ def _extract_featured_artists_from_title(title: str) -> tuple[str, list[str]]:
     if not title:
         return title, []
 
-    match = re.search(r"\s+(feat\.?|ft\.?)\s+(.+)$", title, flags=re.IGNORECASE)
-    if not match:
+    # Parenthetical form: Title (feat. Artist)
+    parenthetical = re.search(r"\((feat\.?|ft\.?|featuring)\s+([^)]+)\)", title, flags=re.IGNORECASE)
+    if parenthetical:
+        featured_raw = _normalize_spaces(parenthetical.group(2))
+        if _contains_qualifier(featured_raw):
+            return title, []
+        cleaned_title = _normalize_spaces((title[: parenthetical.start()] + " " + title[parenthetical.end() :]))
+        featured_raw = featured_raw.replace("&", ",")
+        featured_raw = re.sub(r"\b(and|x|with)\b", ",", featured_raw, flags=re.IGNORECASE)
+        featured = [_normalize_spaces(p) for p in featured_raw.split(",") if _normalize_spaces(p)]
+        return cleaned_title, featured
+
+    # Inline form: Title feat. Artist
+    inline = re.search(r"\s+(feat\.?|ft\.?|featuring)\s+(.+)$", title, flags=re.IGNORECASE)
+    if not inline:
         return title, []
 
-    featured_raw = _normalize_spaces(match.group(2))
-    cleaned_title = _normalize_spaces(title[: match.start()])
+    featured_raw = _normalize_spaces(inline.group(2))
+    if _contains_qualifier(featured_raw):
+        return title, []
 
+    cleaned_title = _normalize_spaces(title[: inline.start()])
     featured_raw = re.split(r"\s*[-–—]\s*", featured_raw, maxsplit=1)[0]
     featured_raw = featured_raw.replace("&", ",")
     featured_raw = re.sub(r"\b(and|x|with)\b", ",", featured_raw, flags=re.IGNORECASE)

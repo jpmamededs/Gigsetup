@@ -254,32 +254,70 @@ class MCPDesktopApi:
         return home / ".cursor" / "mcp.json"
 
     def _connect_claude(self) -> str:
+        file_path = self._resolve_claude_desktop_config_path()
+        payload: dict[str, Any] = {}
+        if file_path.exists():
+            payload = json.loads(file_path.read_text(encoding="utf-8"))
+        payload.setdefault("mcpServers", {})
+
         with self._lock:
             server_name = self._config["serverName"].strip()
 
         cfg = self._selected_config()
         if cfg.get("type") == "stdio":
-            command = ["claude", "mcp", "add", "--transport", "stdio", server_name, cfg["command"]]
-            for arg in cfg.get("args", []):
-                command.append(arg)
+            payload["mcpServers"][server_name] = {
+                "command": cfg["command"],
+                "args": cfg.get("args", []),
+                "env": {
+                    "MCP_TRANSPORT": "stdio",
+                },
+            }
         else:
-            command = ["claude", "mcp", "add", "--transport", "http", server_name, cfg["url"]]
-
+            claude_entry: dict[str, Any] = {
+                "url": cfg["url"],
+            }
             headers = cfg.get("headers") or {}
-            auth_header = headers.get("Authorization")
-            if auth_header:
-                command.extend(["--header", f"Authorization: {auth_header}"])
+            if headers:
+                claude_entry["headers"] = headers
+            payload["mcpServers"][server_name] = claude_entry
 
-        process = subprocess.run(command, cwd=BASE_DIR, capture_output=True, text=True, check=False)
+        self._write_json(file_path, payload)
+        return f"Claude connected. File updated: {file_path}"
 
-        self._append_log(f"$ {' '.join(command)}")
-        if process.stdout:
-            self._append_log(process.stdout.strip())
-        if process.returncode != 0:
-            stderr = process.stderr.strip() if process.stderr else "Claude CLI not found or invalid command."
-            raise RuntimeError(stderr)
+    def _resolve_claude_desktop_config_path(self) -> Path:
+        system = platform.system().lower()
+        home = Path.home()
 
-        return "Claude Code connected successfully."
+        if system == "windows":
+            candidates: list[Path] = []
+
+            appdata_raw = (os.getenv("APPDATA", "") or "").strip()
+            if appdata_raw:
+                candidates.append(Path(appdata_raw).expanduser() / "Claude" / "claude_desktop_config.json")
+
+            localappdata_raw = (os.getenv("LOCALAPPDATA", "") or "").strip()
+            if localappdata_raw:
+                packages_dir = Path(localappdata_raw).expanduser() / "Packages"
+                if packages_dir.exists() and packages_dir.is_dir():
+                    for package in packages_dir.glob("*Claude*"):
+                        candidates.append(
+                            package / "LocalCache" / "Roaming" / "Claude" / "claude_desktop_config.json"
+                        )
+
+            for candidate in candidates:
+                if candidate.exists():
+                    return candidate
+
+            if candidates:
+                return candidates[0]
+            raise RuntimeError("Could not resolve Claude config path on Windows.")
+
+        if system == "darwin":
+            return home / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json"
+
+        xdg_config_home = (os.getenv("XDG_CONFIG_HOME", "") or "").strip()
+        config_root = Path(xdg_config_home).expanduser() if xdg_config_home else (home / ".config")
+        return config_root / "Claude" / "claude_desktop_config.json"
 
 
 def resolve_frontend_entry() -> Path:

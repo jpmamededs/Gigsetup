@@ -444,7 +444,7 @@ def _normalize_artist_text(artist: str | None) -> str | None:
         return None
 
     work = artist
-    work = re.sub(r"\b(feat\.?|ft\.?)\b", ",", work, flags=re.IGNORECASE)
+    work = re.sub(r"\b(feat\.?|ft\.?|featuring)\b", ",", work, flags=re.IGNORECASE)
     work = work.replace("&", ",")
     work = re.sub(r"\b(and|x|with)\b", ",", work, flags=re.IGNORECASE)
     tokens = [" ".join(part.split()) for part in work.split(",") if " ".join(part.split())]
@@ -485,11 +485,32 @@ def _extract_featured_from_title(title: str | None) -> tuple[str | None, list[st
     if not title:
         return title, []
 
-    match = re.search(r"\s+(feat\.?|ft\.?)\s+(.+)$", title, flags=re.IGNORECASE)
+    def _has_version_qualifier(text: str) -> bool:
+        lower = text.lower()
+        return any(
+            token in lower
+            for token in ["remix", "mix", "edit", "version", "vip", "bootleg", "rework", "instrumental", "extended"]
+        )
+
+    parenthetical = re.search(r"\((feat\.?|ft\.?|featuring)\s+([^)]+)\)", title, flags=re.IGNORECASE)
+    if parenthetical:
+        featured_raw = " ".join(parenthetical.group(2).split())
+        if _has_version_qualifier(featured_raw):
+            return title, []
+        base = re.sub(r"\s+", " ", title[: parenthetical.start()] + " " + title[parenthetical.end() :]).strip()
+        featured_raw = featured_raw.replace("&", ",")
+        featured_raw = re.sub(r"\b(and|x|with)\b", ",", featured_raw, flags=re.IGNORECASE)
+        featured = [" ".join(part.split()) for part in featured_raw.split(",") if " ".join(part.split())]
+        return base or None, featured
+
+    match = re.search(r"\s+(feat\.?|ft\.?|featuring)\s+(.+)$", title, flags=re.IGNORECASE)
     if not match:
         return title, []
 
     featured_raw = match.group(2)
+    if _has_version_qualifier(featured_raw):
+        return title, []
+
     base = re.sub(r"\s+", " ", title[: match.start()]).strip()
     featured_raw = re.split(r"\s*[-–—]\s*", featured_raw, maxsplit=1)[0]
     featured_raw = featured_raw.replace("&", ",")

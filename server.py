@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import io
 import os
+import re
 import sys
 import warnings
 from pathlib import Path
@@ -172,6 +173,103 @@ async def apply_verified_metadata(
 ) -> dict[str, Any]:
     results: list[dict[str, Any]] = []
 
+    def _extract_metadata_payload(item: dict[str, Any]) -> dict[str, Any]:
+        # Backward/forward compatibility: accept payload in metadata, suggested,
+        # or top-level fields used by some MCP clients.
+        candidate = item.get("metadata")
+        if not isinstance(candidate, dict) or not candidate:
+            candidate = item.get("suggested")
+        if not isinstance(candidate, dict) or not candidate:
+            candidate = {}
+
+        title = candidate.get("title", item.get("title"))
+        artist = candidate.get("artist", item.get("artist"))
+        album = candidate.get("album", item.get("album"))
+        album_artist = candidate.get("albumArtist", item.get("albumArtist"))
+        genre = candidate.get("genre", item.get("genre"))
+        comment = candidate.get("comment", item.get("comment"))
+
+        if isinstance(genre, list):
+            normalized_genre = [str(g).strip() for g in genre if g is not None and str(g).strip()]
+        elif genre is None:
+            normalized_genre = []
+        else:
+            text = str(genre).strip()
+            normalized_genre = [text] if text else []
+
+        if isinstance(comment, list):
+            normalized_comment = [str(c).strip() for c in comment if c is not None and str(c).strip()]
+        elif comment is None:
+            normalized_comment = []
+        else:
+            text = str(comment).strip()
+            normalized_comment = [text] if text else []
+
+        def _split_artist_tokens(value: str | None) -> list[str]:
+            if not value:
+                return []
+            normalized = re.sub(r"\b(feat\.?|ft\.?|featuring)\b", ",", value, flags=re.IGNORECASE)
+            normalized = normalized.replace("&", ",")
+            normalized = re.sub(r"\b(and|x|with)\b", ",", normalized, flags=re.IGNORECASE)
+            result = []
+            seen = set()
+            for token in normalized.split(","):
+                clean = str(token).strip()
+                if not clean:
+                    continue
+                key = clean.lower()
+                if key not in seen:
+                    result.append(clean)
+                    seen.add(key)
+            return result
+
+        def _split_featured_from_title(value: str | None) -> tuple[str | None, list[str]]:
+            if not value:
+                return value, []
+
+            def _has_version_qualifier(text: str) -> bool:
+                lower = text.lower()
+                return any(
+                    marker in lower
+                    for marker in ["remix", "mix", "edit", "version", "vip", "bootleg", "rework", "instrumental", "extended"]
+                )
+
+            parenthetical = re.search(r"\((feat\.?|ft\.?|featuring)\s+([^)]+)\)", value, flags=re.IGNORECASE)
+            if parenthetical:
+                featured_raw = " ".join(parenthetical.group(2).split())
+                if _has_version_qualifier(featured_raw):
+                    return value, []
+                clean_title = " ".join((value[: parenthetical.start()] + " " + value[parenthetical.end() :]).split())
+                return clean_title or None, _split_artist_tokens(featured_raw)
+
+            inline = re.search(r"\s+(feat\.?|ft\.?|featuring)\s+(.+)$", value, flags=re.IGNORECASE)
+            if not inline:
+                return value, []
+
+            featured_raw = " ".join(inline.group(2).split())
+            if _has_version_qualifier(featured_raw):
+                return value, []
+            clean_title = " ".join(value[: inline.start()].split())
+            featured_raw = re.split(r"\s*[-–—]\s*", featured_raw, maxsplit=1)[0]
+            return clean_title or None, _split_artist_tokens(featured_raw)
+
+        normalized_artists = _split_artist_tokens(str(artist) if artist else None)
+        cleaned_title, featured_artists = _split_featured_from_title(str(title) if title else None)
+        for feat_artist in featured_artists:
+            if feat_artist.lower() not in {a.lower() for a in normalized_artists}:
+                normalized_artists.append(feat_artist)
+
+        normalized_artist = ", ".join(normalized_artists) if normalized_artists else artist
+
+        return {
+            "title": cleaned_title,
+            "artist": normalized_artist,
+            "album": album,
+            "albumArtist": normalized_artist or album_artist,
+            "genre": normalized_genre,
+            "comment": normalized_comment,
+        }
+
     for item in updates:
         file_path = Path(item.get("filePath", ""))
         if not file_path.exists() or not file_path.is_file():
@@ -185,7 +283,7 @@ async def apply_verified_metadata(
             )
             continue
 
-        metadata = item.get("metadata") or {}
+        metadata = _extract_metadata_payload(item)
         confidence = float(item.get("confidence", 0.0))
         evidence = item.get("evidence") or []
 
@@ -210,11 +308,6 @@ async def apply_verified_metadata(
                     }
                 )
                 continue
-
-        metadata["genre"] = metadata.get("genre") if isinstance(metadata.get("genre"), list) else [metadata.get("genre")]
-        metadata["comment"] = (
-            metadata.get("comment") if isinstance(metadata.get("comment"), list) else [metadata.get("comment")]
-        )
 
         if dryRun:
             results.append(
